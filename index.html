@@ -61,11 +61,11 @@
                         </select>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">目標分數</label>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">目標分數 (0-100)</label>
                         <input type="number" id="targetScore" oninput="autoSave()" placeholder="0-100" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" min="0" max="100">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">上次大考分數</label>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">上次大考分數 (0-100)</label>
                         <input type="number" id="pastScore" oninput="autoSave()" placeholder="0-100" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" min="0" max="100">
                     </div>
                     <div>
@@ -74,7 +74,7 @@
                         <p class="text-xs text-gray-500 mt-1 ml-1"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>支援多筆輸入(逗號分隔)，自動算平均</p>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">每日讀書時間 (小時)</label>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">每日讀書時間 (0-24小時)</label>
                         <input type="number" id="dailyStudy" oninput="autoSave()" placeholder="例如：2.5" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" min="0" max="24" step="0.5">
                     </div>
                     <div>
@@ -252,14 +252,14 @@
                         <!-- 生成按鈕 -->
                         <button onclick="generateAIAdvice()" id="aiBtn" class="w-full bg-white hover:bg-gray-50 text-indigo-600 font-bold py-3 px-4 rounded-lg border-2 border-indigo-200 shadow-sm transition duration-200 flex items-center justify-center group">
                             <span id="aiBtnText" class="flex items-center">
-                                <i class="fa-solid fa-brain mr-2 group-hover:animate-pulse"></i> 取得 AI 深度分析與讀書計畫
+                                <i class="fa-solid fa-brain mr-2 group-hover:animate-pulse"></i> 取得 AI 直接建議與策略
                             </span>
                             <div id="aiLoading" class="hidden flex items-center">
                                 <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
-                                AI 正在分析數據<span id="loadingImgText" class="hidden">與錯題圖片</span>...
+                                AI 正在為您規劃...<span id="loadingImgText" class="hidden">(含錯題解析)</span>
                             </div>
                         </button>
 
@@ -317,9 +317,6 @@
             const savedKey = localStorage.getItem('gemini_api_key');
             if (savedKey) {
                 document.getElementById('apiKeyInput').value = savedKey;
-            } else {
-                // 如果沒有 Key，且是第一次使用，可以自動跳出設定框 (選用)
-                // toggleModal('apiKeyModal'); 
             }
 
             // 載入表單資料
@@ -388,7 +385,6 @@
         }
 
         function getApiKey() {
-            // 優先讀取 localStorage 的 Key，若無則回傳空字串 (會導致錯誤)
             return localStorage.getItem('gemini_api_key') || "";
         }
 
@@ -457,8 +453,33 @@
             const errorText = document.getElementById('errorText');
             const resultSection = document.getElementById('resultSection');
 
+            // --- 新增驗證邏輯 ---
             if (isNaN(target) || isNaN(past) || isNaN(quiz) || isNaN(dailyStudy) || isNaN(habitRisk) || !examDateStr) {
                 errorText.innerText = "請確保所有數字欄位已填寫，且格式正確。";
+                errorDiv.classList.remove('hidden');
+                resultSection.classList.add('hidden');
+                return;
+            }
+
+            // 1. 分數 0-100 檢查
+            if (target < 0 || target > 100 || past < 0 || past > 100 || quiz < 0 || quiz > 100) {
+                errorText.innerText = "所有分數必須介於 0 到 100 之間。";
+                errorDiv.classList.remove('hidden');
+                resultSection.classList.add('hidden');
+                return;
+            }
+
+            // 2. 讀書時間 0-24 檢查
+            if (dailyStudy < 0 || dailyStudy > 24) {
+                errorText.innerText = "一日只有24小時，讀書時間請填寫 0~24 之間。";
+                errorDiv.classList.remove('hidden');
+                resultSection.classList.add('hidden');
+                return;
+            }
+
+            // 3. 目標必須大於等於上次大考
+            if (target < past) {
+                errorText.innerText = "設定的「目標分數」不可低於「上次大考分數」，請設定更高的目標來挑戰自己！";
                 errorDiv.classList.remove('hidden');
                 resultSection.classList.add('hidden');
                 return;
@@ -578,7 +599,6 @@
 
             resultSection.scrollIntoView({ behavior: 'smooth' });
             
-            // 計算完畢也儲存一次
             autoSave();
         }
 
@@ -597,7 +617,6 @@
         async function generateAIAdvice() {
             if (!currentAssessmentData) return;
 
-            // 獲取 Key
             const apiKey = getApiKey();
             if (!apiKey) {
                 alert("您尚未設定 API Key！請點擊右上角的設定圖示 (⚙️) 輸入 Key。");
@@ -625,33 +644,32 @@
 
             const data = currentAssessmentData;
             
+            // --- 更新後的 AI 指令：直接給建議，省略廢話 ---
             let promptText = `
-你是一位專業、嚴格但富有同理心的考試輔導教練。請根據以下學生的數據提供分析與建議。請用繁體中文回答。
+你是一位專業的考試教練。請省略「現狀分析」或「你好」等客套話，直接針對學生的數據給出最直接的「行動指令」與「複習策略」。請用繁體中文。
 
 學生數據：
 - 科目：${data.subject}
 - 目標分數：${data.target}
 - 目前程度：上次大考 ${data.past} 分，平時小考平均 ${data.quiz.toFixed(1)} 分
 - 剩餘時間：${data.daysLeft} 天
-- 讀書投入：每日 ${data.dailyStudy} 小時 (預估總投入 ${Math.round(data.potentialHours)} 小時)
-- 讀書習慣自我評估：${data.habitText}
-- 系統計算風險指數：${data.totalScore}%
+- 讀書投入：每日 ${data.dailyStudy} 小時
+- 讀書習慣：${data.habitText}
+- 風險指數：${data.totalScore}%
 
-請提供以下內容（請使用 Markdown 格式）：
-1. **現狀分析**：一句話點破他目前最大的問題。
-2. **具體行動策略**：請給出 3 點具體、可執行的建議。針對該科目（${data.subject}）的特性給予建議。
-3. **時間分配建議**：針對剩餘 ${data.daysLeft} 天，簡述該如何分配複習比重。
+請提供以下內容（使用 Markdown 列表）：
+1. **核心策略**：直接告訴他現在該做什麼（例如：刷題、背單字、或放棄難題）。
+2. **針對性複習**：針對 ${data.subject} 的特性，列出 2-3 個必讀重點。
+3. **時間管理**：剩餘 ${data.daysLeft} 天，具體如何分配複習比重？
+4. **教練的一句話**：一句激勵的話。
 `;
 
             if (currentImageBase64) {
                 promptText += `\n\n[特別注意] 學生上傳了一張錯題圖片。請針對這張圖片：
-4. **錯題診斷與複習重點**：
-   - **觀念分析**：這題主要考什麼觀念？
-   - **解題關鍵**：簡要說明解題思路或破題點。
-   - **需複習內容**：根據這個錯誤，學生應該回去複習課本的哪個章節或主題？
-5. **教練的一句話**：一句激勵人心或當頭棒喝的話。`;
-            } else {
-                promptText += `\n4. **教練的一句話**：一句激勵人心或當頭棒喝的話。`;
+5. **錯題診斷與複習**：
+   - **觀念**：這題考什麼？
+   - **解法**：解題關鍵是什麼？
+   - **複習**：回去看課本哪裡？`;
             }
 
             const parts = [{ text: promptText }];
@@ -693,7 +711,7 @@
                 responseDiv.classList.remove('hidden');
 
             } catch (error) {
-                responseDiv.innerHTML = `<p class="text-red-600 font-bold">抱歉，AI 教練目前忙線中。請檢查您的 API Key 是否正確。</p><p class="text-xs text-red-400 mt-2">${error.message}</p>`;
+                responseDiv.innerHTML = `<p class="text-red-600 font-bold">AI 連線錯誤。請檢查您的 API Key 是否正確。</p><p class="text-xs text-red-400 mt-2">${error.message}</p>`;
                 responseDiv.classList.remove('hidden');
             } finally {
                 btn.disabled = false;
